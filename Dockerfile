@@ -1,6 +1,7 @@
 FROM alpine:latest
 
-RUN apk add --no-cache git git-lfs openssh
+RUN apk update
+RUN apk add --no-cache openssh
 
 COPY entrypoint.sh /entrypoint.sh
 
