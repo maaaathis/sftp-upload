@@ -14,7 +14,7 @@ inputs:
     default: "22"
   ssh_private_key:
     description: 'SSH private key for authentication. Ensure the format is preserved when copying from your *.pem file.'
-    required: true
+    required: false
   local_path:
     description: 'The local path to the files that will be uploaded.'
     required: true
