@@ -1,0 +1,57 @@
+name: 'SFTP Upload'
+description: 'Upload files to a server using SFTP with SSH private key authentication.'
+
+inputs:
+  username:
+    description: 'The username for the SFTP connection.'
+    required: true
+  server:  
+    description: 'The address of the SFTP server.'
+    required: true
+  port: 
+    description: 'The port number for the SFTP server (default: 22).'
+    required: true
+    default: "22"
+  ssh_private_key:
+    description: 'SSH private key for authentication. Ensure the format is preserved when copying from your *.pem file.'
+    required: true
+  local_path:
+    description: 'The local path to the files that will be uploaded.'
+    required: true
+    default: './*'
+  remote_path:
+    description: 'The remote directory path where the files will be uploaded.'
+    required: true
+  sftp_only:
+    description: 'If set to true, the connection will be made via the SFTP protocol only.'
+    required: false
+    default: false
+  sftpArgs:
+    description: 'Additional arguments for the SFTP command.'
+    required: false
+  delete_remote_files:
+    description: 'If set to true, all files in the remote path will be deleted before the upload. Use with caution.'
+    required: false
+    default: false
+  password:
+    description: 'SSH password. If set, the SSH private key will be ignored.'
+    required: false
+
+runs:
+  using: 'docker'
+  image: 'Dockerfile'
+  args:
+    - ${{ inputs.username }}
+    - ${{ inputs.server }}
+    - ${{ inputs.port }}
+    - ${{ inputs.ssh_private_key }}
+    - ${{ inputs.local_path }}
+    - ${{ inputs.remote_path }}
+    - ${{ inputs.sftp_only }}
+    - ${{ inputs.sftpArgs }}
+    - ${{ inputs.delete_remote_files }}
+    - ${{ inputs.password }}
+
+branding:
+  icon: 'upload-cloud'  
+  color: 'orange'
