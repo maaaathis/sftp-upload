@@ -12,7 +12,6 @@
 | `ssh_private_key`   | No       |         | SSH private key. Copy the contents of your private key file (e.g., `id_rsa`) and add it as a secret in your repository settings. |
 | `local_path`        | Yes      | `./*`   | Local path of your project files to be uploaded. For a single file, use `./myfile`. For a directory, use `./static/*`. Default is `./*` (uploads all files in your repository). |
 | `remote_path`       | Yes      |         | Remote path where files will be uploaded.                                                                          |
-| `sftp_only`         | No       | `false` | Set to `true` if the remote host only accepts SFTP connections. Note: If set to `true`, the remote directory will not be created automatically. |
 | `sftpArgs`          | No       |         | Additional SFTP arguments. For example, `-o ConnectTimeout=5`                                                      |
 | `delete_remote_files` | No     | `false` | Set to `true` to delete all files in the remote path before uploading. **Use with caution.**                       |
 | `password`          | No       |         | SSH password. If a password is set, the SSH private key will be ignored.                                           |
@@ -68,7 +67,6 @@ jobs:
           port: ${{ secrets.FTP_PORT }}
           local_path: './static/*'
           remote_path: '/var/www/app'
-          sftp_only: true
           password: ${{ secrets.FTP_PASSWORD }}
 ```
 
