@@ -22,10 +22,6 @@ inputs:
   remote_path:
     description: 'The remote directory path where the files will be uploaded.'
     required: true
-  sftp_only:
-    description: 'If set to true, the connection will be made via the SFTP protocol only.'
-    required: false
-    default: false
   sftpArgs:
     description: 'Additional arguments for the SFTP command.'
     required: false
@@ -47,7 +43,6 @@ runs:
     - ${{ inputs.ssh_private_key }}
     - ${{ inputs.local_path }}
     - ${{ inputs.remote_path }}
-    - ${{ inputs.sftp_only }}
     - ${{ inputs.sftpArgs }}
     - ${{ inputs.delete_remote_files }}
     - ${{ inputs.password }}

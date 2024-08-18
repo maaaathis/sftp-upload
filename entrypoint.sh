@@ -10,10 +10,9 @@ PORT="$3"
 SSH_PRIVATE_KEY="$4"
 LOCAL_PATH="$5"
 REMOTE_PATH="$6"
-SFTP_ONLY="$7"
-SFTP_ARGS="$8"
-DELETE_REMOTE_FILES="$9"
-PASSWORD="${10}"
+SFTP_ARGS="$7"
+DELETE_REMOTE_FILES="$8"
+PASSWORD="${9}"
 
 # Define temporary file paths
 TEMP_SSH_PRIVATE_KEY_FILE='../private_key.pem'
@@ -36,14 +35,6 @@ if [ -n "$PASSWORD" ]; then
         sshpass -p "$PASSWORD" ssh -o StrictHostKeyChecking=no -p "$PORT" "$USERNAME@$SERVER" rm -rf "$REMOTE_PATH"
     fi
 
-    # Skip directory creation if SFTP_ONLY is true, otherwise create directory
-    if [ "$SFTP_ONLY" != "true" ]; then
-        echo 'Creating directory on remote server if it does not exist...'
-        sshpass -p "$PASSWORD" ssh -o StrictHostKeyChecking=no -p "$PORT" "$USERNAME@$SERVER" mkdir -p "$REMOTE_PATH"
-    else
-        echo 'Skipping directory creation as SFTP_ONLY is set to true'
-    fi
-
     # Start SFTP transfer
     echo 'Starting SFTP transfer...'
     printf "%s" "put -r $LOCAL_PATH $REMOTE_PATH" >"$TEMP_SFTP_FILE"
@@ -62,14 +53,6 @@ chmod 600 "$TEMP_SSH_PRIVATE_KEY_FILE"  # Ensure the private key has the correct
 if [ "$DELETE_REMOTE_FILES" = "true" ]; then
     echo 'Deleting remote files...'
     ssh -o StrictHostKeyChecking=no -p "$PORT" -i "$TEMP_SSH_PRIVATE_KEY_FILE" "$USERNAME@$SERVER" rm -rf "$REMOTE_PATH"
-fi
-
-# Skip directory creation if SFTP_ONLY is true, otherwise create directory
-if [ "$SFTP_ONLY" != "true" ]; then
-    echo 'Creating directory on remote server if it does not exist...'
-    ssh -o StrictHostKeyChecking=no -p "$PORT" -i "$TEMP_SSH_PRIVATE_KEY_FILE" "$USERNAME@$SERVER" mkdir -p "$REMOTE_PATH"
-else
-    echo 'Skipping directory creation as SFTP_ONLY is set to true'
 fi
 
 # Start SFTP transfer
