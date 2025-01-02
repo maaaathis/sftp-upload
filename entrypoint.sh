@@ -33,6 +33,9 @@ if [ -n "$PASSWORD" ]; then
     if [ "$DELETE_REMOTE_FILES" = "true" ]; then
         echo 'Deleting remote files...'
         sshpass -p "$PASSWORD" ssh -o StrictHostKeyChecking=no -p "$PORT" "$USERNAME@$SERVER" rm -rf "$REMOTE_PATH"
+
+        echo 'Recreating remote directory...'
+        sshpass -p "$PASSWORD" ssh -o StrictHostKeyChecking=no -p "$PORT" "$USERNAME@$SERVER" mkdir -p "$REMOTE_PATH"
     fi
 
     # Start SFTP transfer
@@ -53,6 +56,9 @@ chmod 600 "$TEMP_SSH_PRIVATE_KEY_FILE"  # Ensure the private key has the correct
 if [ "$DELETE_REMOTE_FILES" = "true" ]; then
     echo 'Deleting remote files...'
     ssh -o StrictHostKeyChecking=no -p "$PORT" -i "$TEMP_SSH_PRIVATE_KEY_FILE" "$USERNAME@$SERVER" rm -rf "$REMOTE_PATH"
+
+    echo 'Recreating remote directory...'
+    ssh -o StrictHostKeyChecking=no -p "$PORT" -i "$TEMP_SSH_PRIVATE_KEY_FILE" "$USERNAME@$SERVER" mkdir -p "$REMOTE_PATH"
 fi
 
 # Start SFTP transfer
