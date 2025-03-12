@@ -32,6 +32,10 @@ inputs:
   password:
     description: 'SSH password. If set, the SSH private key will be ignored.'
     required: false
+  use_sftp_for_delete:
+    description: 'Use SFTP commands for deletion instead of SSH'
+    required: false
+    default: true
 
 runs:
   using: 'docker'
@@ -46,6 +50,7 @@ runs:
     - ${{ inputs.sftpArgs }}
     - ${{ inputs.delete_remote_files }}
     - ${{ inputs.password }}
+    - ${{ inputs.use_sftp_for_delete }}
 
 branding:
   icon: 'upload-cloud'  
