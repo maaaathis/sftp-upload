@@ -17,11 +17,11 @@ USE_SFTP_FOR_DELETE="${10:-true}"
 SSH_USERNAME="${11:-$SFTP_USERNAME}"
 SSH_PASSWORD="${12:-$SFTP_PASSWORD}"
 
-# Define temporary file paths
-TEMP_SSH_PRIVATE_KEY_FILE='../private_key.pem'
-TEMP_SFTP_FILE='../sftp'
-TEMP_SFTP_DELETE_FILE='../sftp_delete'
-TEMP_DIR_LIST_FILE='../dir_list'
+# Use /tmp for temporary files (absolute paths)
+TEMP_SSH_PRIVATE_KEY_FILE='/tmp/private_key.pem'
+TEMP_SFTP_FILE='/tmp/sftp'
+TEMP_SFTP_DELETE_FILE='/tmp/sftp_delete'
+TEMP_DIR_LIST_FILE='/tmp/dir_list'
 
 # Function to log with timestamp
 log() {
@@ -51,10 +51,16 @@ delete_via_sftp() {
         echo "ls -la"  # List after deletion for debugging
     } > "$TEMP_SFTP_DELETE_FILE"
     
+    log "SFTP delete commands written to $TEMP_SFTP_DELETE_FILE"
+    log "SFTP delete command content:"
+    cat "$TEMP_SFTP_DELETE_FILE"
+    
     # Execute SFTP commands
     if [ -n "$SFTP_PASSWORD" ]; then
+        log "Using SFTP password authentication for deletion"
         SSHPASS="$SFTP_PASSWORD" sshpass -e sftp -b "$TEMP_SFTP_DELETE_FILE" -P "$PORT" $SFTP_ARGS -o StrictHostKeyChecking=no "$SFTP_USERNAME@$SERVER"
     else
+        log "Using SFTP key authentication for deletion"
         sftp -b "$TEMP_SFTP_DELETE_FILE" -P "$PORT" $SFTP_ARGS -o StrictHostKeyChecking=no -i "$TEMP_SSH_PRIVATE_KEY_FILE" "$SFTP_USERNAME@$SERVER"
     fi
     
@@ -65,10 +71,17 @@ delete_via_sftp() {
 delete_via_ssh() {
     log 'Deleting remote files via SSH...'
     
+    SSH_CMD="rm -rf $REMOTE_PATH && mkdir -p $REMOTE_PATH"
+    log "SSH command: $SSH_CMD"
+    
     if [ -n "$SSH_PASSWORD" ]; then
-        sshpass -p "$SSH_PASSWORD" ssh -o StrictHostKeyChecking=no -p "$PORT" "$SSH_USERNAME@$SERVER" "rm -rf $REMOTE_PATH && mkdir -p $REMOTE_PATH"
+        log "Using SSH password authentication for deletion"
+        sshpass -p "$SSH_PASSWORD" ssh -o StrictHostKeyChecking=no -p "$PORT" "$SSH_USERNAME@$SERVER" "$SSH_CMD"
     else
-        ssh -o StrictHostKeyChecking=no -p "$PORT" -i "$TEMP_SSH_PRIVATE_KEY_FILE" "$SSH_USERNAME@$SERVER" "rm -rf $REMOTE_PATH && mkdir -p $REMOTE_PATH"
+        log "Using SSH key authentication for deletion"
+        log "SSH key file: $TEMP_SSH_PRIVATE_KEY_FILE"
+        ls -la "$TEMP_SSH_PRIVATE_KEY_FILE" || log "SSH key file not found!"
+        ssh -o StrictHostKeyChecking=no -p "$PORT" -i "$TEMP_SSH_PRIVATE_KEY_FILE" "$SSH_USERNAME@$SERVER" "$SSH_CMD"
     fi
     
     log 'Remote directory cleared successfully via SSH'
@@ -85,6 +98,10 @@ if [ -n "$SSH_PRIVATE_KEY" ]; then
     log 'Setting up SSH private key'
     printf "%s" "$SSH_PRIVATE_KEY" > "$TEMP_SSH_PRIVATE_KEY_FILE"
     chmod 600 "$TEMP_SSH_PRIVATE_KEY_FILE"  # Ensure the private key has the correct permissions
+    log "SSH key saved to $TEMP_SSH_PRIVATE_KEY_FILE with permissions:"
+    ls -la "$TEMP_SSH_PRIVATE_KEY_FILE"
+else
+    log 'No SSH private key provided'
 fi
 
 # Delete remote files if DELETE_REMOTE_FILES is set to true
@@ -99,12 +116,16 @@ fi
 # Start SFTP transfer
 log 'Starting SFTP transfer...'
 printf "%s" "put -r $LOCAL_PATH $REMOTE_PATH" > "$TEMP_SFTP_FILE"
+log "SFTP command content:"
+cat "$TEMP_SFTP_FILE"
 
 if [ -n "$SFTP_PASSWORD" ]; then
     log 'Using SFTP with password authentication'
     SSHPASS="$SFTP_PASSWORD" sshpass -e sftp -oBatchMode=no -b "$TEMP_SFTP_FILE" -P "$PORT" $SFTP_ARGS -o StrictHostKeyChecking=no "$SFTP_USERNAME@$SERVER"
 else
     log 'Using SFTP with key authentication'
+    log "SSH key file: $TEMP_SSH_PRIVATE_KEY_FILE"
+    ls -la "$TEMP_SSH_PRIVATE_KEY_FILE" || log "SSH key file not found!"
     sftp -b "$TEMP_SFTP_FILE" -P "$PORT" $SFTP_ARGS -o StrictHostKeyChecking=no -i "$TEMP_SSH_PRIVATE_KEY_FILE" "$SFTP_USERNAME@$SERVER"
 fi
 
