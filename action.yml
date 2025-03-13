@@ -2,7 +2,7 @@ name: 'SFTP Upload'
 description: 'Upload files to a server using SFTP with SSH private key authentication.'
 
 inputs:
-  username:
+  sftp_username:
     description: 'The username for the SFTP connection.'
     required: true
   server:  
@@ -29,13 +29,19 @@ inputs:
     description: 'If set to true, all files in the remote path will be deleted before the upload. Use with caution.'
     required: false
     default: false
-  password:
+  sftp_password:
     description: 'SSH password. If set, the SSH private key will be ignored.'
     required: false
   use_sftp_for_delete:
     description: 'Use SFTP commands for deletion instead of SSH'
     required: false
     default: true
+  ssh_username:
+    description: 'Username for SSH operations (defaults to SFTP username if not provided)'
+    required: false
+  ssh_password:
+    description: 'Password for SSH user (defaults to SFTP password if not provided)'
+    required: false
 
 runs:
   using: 'docker'
@@ -51,6 +57,8 @@ runs:
     - ${{ inputs.delete_remote_files }}
     - ${{ inputs.password }}
     - ${{ inputs.use_sftp_for_delete }}
+    - ${{ inputs.ssh_username }}
+    - ${{ inputs.ssh_password }}
 
 branding:
   icon: 'upload-cloud'  
