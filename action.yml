@@ -30,7 +30,7 @@ inputs:
     required: false
     default: false
   sftp_password:
-    description: 'SSH password. If set, the SSH private key will be ignored.'
+    description: 'SFTP password. If set, the SSH private key will be ignored.'
     required: false
   use_sftp_for_delete:
     description: 'Use SFTP commands for deletion instead of SSH'

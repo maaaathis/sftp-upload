@@ -4,7 +4,6 @@
 set -e
 
 # Define variables for input parameters
-SFTP_USERNAME="$1"
 SERVER="$2"
 PORT="$3"
 SSH_PRIVATE_KEY="$4"
@@ -12,94 +11,44 @@ LOCAL_PATH="$5"
 REMOTE_PATH="$6"
 SFTP_ARGS="$7"
 DELETE_REMOTE_FILES="$8"
-SFTP_PASSWORD="$9"
-USE_SFTP_FOR_DELETE="${10:-true}"
-SSH_USERNAME="${11:-$SFTP_USERNAME}"
-SSH_PASSWORD="${12:-$SFTP_PASSWORD}"
-
-# Use /tmp for temporary files
-TEMP_SSH_PRIVATE_KEY_FILE='/tmp/private_key.pem'
-TEMP_SFTP_FILE='/tmp/sftp_commands'
+SSH_PASSWORD="${12}"
+SSH_USERNAME="${11}"
 
 # Function to log with timestamp
 log() {
   echo "$(date +"%Y-%m-%d %H:%M:%S") - $1"
 }
 
-# Function to validate parameters
-validate_params() {
-  if [ -z "$SFTP_USERNAME" ]; then
-    log "ERROR: SFTP username is empty!"
-    exit 1
-  fi
-
-  if [ -z "$SSH_USERNAME" ]; then
-    log "ERROR: SSH username is empty!"
-    exit 1
-  fi
-
-  if [ -z "$SERVER" ]; then
-    log "ERROR: Server address is empty!"
-    exit 1
-  fi
-
-  if [ -z "$REMOTE_PATH" ]; then
-    log "ERROR: Remote path is empty!"
-    exit 1
-  fi
-
-  if [ -z "$LOCAL_PATH" ]; then
-    log "ERROR: Local path is empty!"
-    exit 1
-  fi
-
-  log "Validated parameters:"
-  log "- SFTP Username: $SFTP_USERNAME"
-  log "- SSH Username: $SSH_USERNAME"
-  log "- Server: $SERVER"
-  log "- Port: $PORT"
-  log "- Local Path: $LOCAL_PATH"
-  log "- Remote Path: $REMOTE_PATH"
-  log "- Delete Remote Files: $DELETE_REMOTE_FILES"
-  log "- Using password authentication: $([ -n "$SFTP_PASSWORD" ] || [ -n "$SSH_PASSWORD" ] && echo 'Yes' || echo 'No')"
-  log "- Using key authentication: $([ -n "$SSH_PRIVATE_KEY" ] && echo 'Yes' || echo 'No')"
-}
-
-# Validate parameters
-validate_params
-
 # Install required packages
-log "Installing required packages..."
+log "Installiere benötigte Pakete..."
 apk update
-apk add --no-cache sshpass openssh-client
+apk add --no-cache sshpass openssh-client rsync
 
-# Handle SSH private key if provided
-if [ -n "$SSH_PRIVATE_KEY" ]; then
-  log "Setting up SSH private key"
-  printf "%s" "$SSH_PRIVATE_KEY" > "$TEMP_SSH_PRIVATE_KEY_FILE"
-  chmod 600 "$TEMP_SSH_PRIVATE_KEY_FILE"
-else
-  log "No SSH private key provided"
-fi
+# Benutzername enthält ein @ - wir müssen vorsichtig mit Anführungszeichen arbeiten
+log "SSH-Benutzername: $SSH_USERNAME"
 
 # Function to delete remote directory via SSH
 delete_via_ssh() {
-  log "Deleting remote files via SSH..."
+  log "Lösche Remote-Dateien via SSH..."
   SSH_CMD="rm -rf $REMOTE_PATH && mkdir -p $REMOTE_PATH"
-  log "SSH command: $SSH_CMD"
+  log "SSH-Befehl: $SSH_CMD"
   
   if [ -n "$SSH_PASSWORD" ]; then
-    log "Using SSH password authentication for deletion with user: $SSH_USERNAME"
+    log "Verwende SSH Passwort-Authentifizierung für das Löschen"
     sshpass -p "$SSH_PASSWORD" ssh -o StrictHostKeyChecking=no -p "$PORT" "$SSH_USERNAME@$SERVER" "$SSH_CMD"
   elif [ -n "$SSH_PRIVATE_KEY" ]; then
-    log "Using SSH key authentication for deletion with user: $SSH_USERNAME"
+    TEMP_SSH_PRIVATE_KEY_FILE='/tmp/private_key.pem'
+    printf "%s" "$SSH_PRIVATE_KEY" > "$TEMP_SSH_PRIVATE_KEY_FILE"
+    chmod 600 "$TEMP_SSH_PRIVATE_KEY_FILE"
+    
+    log "Verwende SSH Key-Authentifizierung für das Löschen"
     ssh -o StrictHostKeyChecking=no -p "$PORT" -i "$TEMP_SSH_PRIVATE_KEY_FILE" "$SSH_USERNAME@$SERVER" "$SSH_CMD"
   else
-    log "ERROR: No authentication method available for SSH delete"
+    log "FEHLER: Keine Authentifizierungsmethode verfügbar"
     exit 1
   fi
   
-  log "Remote directory cleared successfully via SSH"
+  log "Remote-Verzeichnis erfolgreich gelöscht"
 }
 
 # Delete remote files if requested
@@ -107,62 +56,83 @@ if [ "$DELETE_REMOTE_FILES" = "true" ]; then
   delete_via_ssh
 fi
 
-# Function to execute SFTP using sshpass
-sftp_transfer() {
-  log "Starting SFTP transfer..."
-  log "Preparing SFTP batch commands file"
+# Function to sync files using rsync
+rsync_transfer() {
+  log "Starte rsync-Übertragung mit SSH-Zugangsdaten..."
   
-  # Create SFTP batch file
-  cat > "$TEMP_SFTP_FILE" << EOF
-cd $REMOTE_PATH
-put -r $LOCAL_PATH/* .
-EOF
+  # Ensure local path has trailing slash for rsync
+  LOCAL_PATH_RSYNC="$LOCAL_PATH"
+  if [ ! -z "$LOCAL_PATH" ] && [ "${LOCAL_PATH: -1}" != "/" ]; then
+    LOCAL_PATH_RSYNC="$LOCAL_PATH/"
+  fi
   
-  log "SFTP commands:"
-  cat "$TEMP_SFTP_FILE"
+  log "Quellpfad: $LOCAL_PATH_RSYNC"
+  log "Zielpfad: $REMOTE_PATH"
   
-  if [ -n "$SFTP_PASSWORD" ]; then
-    log "Using SFTP password authentication with user: $SFTP_USERNAME"
-    echo "Using sshpass with SFTP password..."
-    SSHPASS="$SFTP_PASSWORD" sshpass -e sftp -oStrictHostKeyChecking=no -P "$PORT" -b "$TEMP_SFTP_FILE" "$SFTP_USERNAME@$SERVER"
-  elif [ -n "$SSH_PASSWORD" ]; then
-    log "Using SSH password for SFTP authentication with user: $SFTP_USERNAME"
-    echo "Using sshpass with SSH password..."
-    SSHPASS="$SSH_PASSWORD" sshpass -e sftp -oStrictHostKeyChecking=no -P "$PORT" -b "$TEMP_SFTP_FILE" "$SFTP_USERNAME@$SERVER"
+  # List local directory contents
+  log "Inhalt des lokalen Verzeichnisses:"
+  ls -la "$LOCAL_PATH"
+  
+  if [ -n "$SSH_PASSWORD" ]; then
+    log "Verwende rsync mit SSH Passwort"
+    export SSHPASS="$SSH_PASSWORD"
+    rsync -avz --progress --delete -e "sshpass -e ssh -p $PORT -o StrictHostKeyChecking=no" "$LOCAL_PATH_RSYNC" "$SSH_USERNAME@$SERVER:$REMOTE_PATH/"
   elif [ -n "$SSH_PRIVATE_KEY" ]; then
-    log "Using SFTP with key authentication with user: $SFTP_USERNAME"
-    sftp -oStrictHostKeyChecking=no -i "$TEMP_SSH_PRIVATE_KEY_FILE" -P "$PORT" -b "$TEMP_SFTP_FILE" "$SFTP_USERNAME@$SERVER"
+    TEMP_SSH_PRIVATE_KEY_FILE='/tmp/private_key.pem'
+    printf "%s" "$SSH_PRIVATE_KEY" > "$TEMP_SSH_PRIVATE_KEY_FILE"
+    chmod 600 "$TEMP_SSH_PRIVATE_KEY_FILE"
+    
+    log "Verwende rsync mit SSH Key"
+    rsync -avz --progress --delete -e "ssh -p $PORT -i $TEMP_SSH_PRIVATE_KEY_FILE -o StrictHostKeyChecking=no" "$LOCAL_PATH_RSYNC" "$SSH_USERNAME@$SERVER:$REMOTE_PATH/"
   else
-    log "ERROR: No authentication method available for SFTP upload"
-    exit 1
+    log "FEHLER: Keine Authentifizierungsmethode verfügbar"
+    return 1
   fi
 }
 
-# Alternative approach using direct scp for file transfer
+# Function for direct SCP transfer as fallback
 scp_transfer() {
-  log "Falling back to SCP transfer..."
+  log "Fallback: Starte SCP-Übertragung..."
   
-  if [ -n "$SFTP_PASSWORD" ]; then
-    log "Using SCP with SFTP password authentication with user: $SFTP_USERNAME"
-    cd "$LOCAL_PATH" && find . -type f -exec sshpass -p "$SFTP_PASSWORD" scp -o StrictHostKeyChecking=no -P "$PORT" {} "$SFTP_USERNAME@$SERVER:$REMOTE_PATH/" \;
-  elif [ -n "$SSH_PASSWORD" ]; then
-    log "Using SCP with SSH password authentication with user: $SFTP_USERNAME"
-    cd "$LOCAL_PATH" && find . -type f -exec sshpass -p "$SSH_PASSWORD" scp -o StrictHostKeyChecking=no -P "$PORT" {} "$SFTP_USERNAME@$SERVER:$REMOTE_PATH/" \;
+  if [ -n "$SSH_PASSWORD" ]; then
+    log "Verwende SCP mit SSH Passwort"
+    cd "$LOCAL_PATH" && find . -type f | while read file; do
+      dir=$(dirname "$file")
+      if [ "$dir" != "." ]; then
+        sshpass -p "$SSH_PASSWORD" ssh -o StrictHostKeyChecking=no -p "$PORT" "$SSH_USERNAME@$SERVER" "mkdir -p $REMOTE_PATH/$dir"
+      fi
+      sshpass -p "$SSH_PASSWORD" scp -o StrictHostKeyChecking=no -P "$PORT" "$file" "$SSH_USERNAME@$SERVER:$REMOTE_PATH/$file"
+    done
   elif [ -n "$SSH_PRIVATE_KEY" ]; then
-    log "Using SCP with key authentication with user: $SFTP_USERNAME"
-    cd "$LOCAL_PATH" && find . -type f -exec scp -o StrictHostKeyChecking=no -i "$TEMP_SSH_PRIVATE_KEY_FILE" -P "$PORT" {} "$SFTP_USERNAME@$SERVER:$REMOTE_PATH/" \;
+    TEMP_SSH_PRIVATE_KEY_FILE='/tmp/private_key.pem'
+    printf "%s" "$SSH_PRIVATE_KEY" > "$TEMP_SSH_PRIVATE_KEY_FILE"
+    chmod 600 "$TEMP_SSH_PRIVATE_KEY_FILE"
+    
+    log "Verwende SCP mit SSH Key"
+    cd "$LOCAL_PATH" && find . -type f | while read file; do
+      dir=$(dirname "$file")
+      if [ "$dir" != "." ]; then
+        ssh -o StrictHostKeyChecking=no -p "$PORT" -i "$TEMP_SSH_PRIVATE_KEY_FILE" "$SSH_USERNAME@$SERVER" "mkdir -p $REMOTE_PATH/$dir"
+      fi
+      scp -o StrictHostKeyChecking=no -i "$TEMP_SSH_PRIVATE_KEY_FILE" -P "$PORT" "$file" "$SSH_USERNAME@$SERVER:$REMOTE_PATH/$file"
+    done
   else
-    log "ERROR: No authentication method available for SCP upload"
-    exit 1
+    log "FEHLER: Keine Authentifizierungsmethode verfügbar"
+    return 1
   fi
 }
 
-# Try SFTP first, then fall back to SCP if it fails
-echo "Attempting file transfer..."
-if ! sftp_transfer; then
-  log "SFTP transfer failed, trying SCP instead"
-  scp_transfer || { log "ERROR: All file transfer methods failed"; exit 1; }
+# Try file transfers
+log "Starte Dateiübertragung..."
+
+if rsync_transfer; then
+  log "Dateiübertragung via rsync erfolgreich abgeschlossen"
+elif scp_transfer; then
+  log "Dateiübertragung via SCP erfolgreich abgeschlossen"
+else
+  log "FEHLER: Alle Übertragungsmethoden sind fehlgeschlagen"
+  exit 1
 fi
 
-log "File transfer completed successfully"
+log "Deployment erfolgreich abgeschlossen"
 exit 0
