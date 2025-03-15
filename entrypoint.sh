@@ -19,28 +19,11 @@ SSH_PASSWORD="${12:-$SFTP_PASSWORD}"
 
 # Use /tmp for temporary files
 TEMP_SSH_PRIVATE_KEY_FILE='/tmp/private_key.pem'
-TEMP_SFTP_FILE='/tmp/sftp'
-TEMP_SFTP_DELETE_FILE='/tmp/sftp_delete'
+TEMP_SFTP_FILE='/tmp/sftp_commands'
 
 # Function to log with timestamp
 log() {
   echo "$(date +"%Y-%m-%d %H:%M:%S") - $1"
-}
-
-# Function to display debug info
-debug_info() {
-  log "Debug info:"
-  log "- LOCAL_PATH: $LOCAL_PATH"
-  log "- REMOTE_PATH: $REMOTE_PATH"
-  log "- SFTP_USERNAME: $SFTP_USERNAME"
-  log "- SSH_USERNAME: $SSH_USERNAME"
-  log "- SFTP_PASSWORD provided: $([ -n "$SFTP_PASSWORD" ] && echo 'Yes' || echo 'No')"
-  log "- SSH_PASSWORD provided: $([ -n "$SSH_PASSWORD" ] && echo 'Yes' || echo 'No')"
-  log "- SSH_PRIVATE_KEY provided: $([ -n "$SSH_PRIVATE_KEY" ] && echo 'Yes' || echo 'No')"
-  log "- DELETE_REMOTE_FILES: $DELETE_REMOTE_FILES"
-  log "- USE_SFTP_FOR_DELETE: $USE_SFTP_FOR_DELETE"
-  log "- Current directory content:"
-  ls -la
 }
 
 # Ensure the remote path is not empty
@@ -48,9 +31,6 @@ if [ -z "$REMOTE_PATH" ]; then
     log 'Error: remote_path is empty'
     exit 1
 fi
-
-# Display debug info
-debug_info
 
 # Install sshpass if password authentication is needed
 if [ -n "$SFTP_PASSWORD" ] || [ -n "$SSH_PASSWORD" ]; then
@@ -87,64 +67,60 @@ delete_via_ssh() {
     log 'Remote directory cleared successfully via SSH'
 }
 
-# Function to delete remote files via SFTP
-delete_via_sftp() {
-    log 'Deleting remote files via SFTP protocol...'
-    
-    # Extract parent directory and basename
-    REMOTE_DIR=$(dirname "$REMOTE_PATH")
-    REMOTE_BASE=$(basename "$REMOTE_PATH")
-    
-    # Create temporary SFTP batch commands file
-    {
-        echo "cd $REMOTE_DIR"
-        echo "ls -la"
-        echo "rm -rf $REMOTE_BASE"
-        echo "mkdir $REMOTE_BASE"
-        echo "ls -la"
-    } > "$TEMP_SFTP_DELETE_FILE"
-    
-    log "SFTP delete commands:"
-    cat "$TEMP_SFTP_DELETE_FILE"
-    
-    # Execute SFTP commands
-    if [ -n "$SFTP_PASSWORD" ]; then
-        log "Using SFTP password authentication for deletion"
-        sshpass -p "$SFTP_PASSWORD" sftp -b "$TEMP_SFTP_DELETE_FILE" -P "$PORT" $SFTP_ARGS -o StrictHostKeyChecking=no "$SFTP_USERNAME@$SERVER"
-    elif [ -n "$SSH_PRIVATE_KEY" ]; then
-        log "Using SFTP key authentication for deletion"
-        sftp -b "$TEMP_SFTP_DELETE_FILE" -P "$PORT" $SFTP_ARGS -o StrictHostKeyChecking=no -i "$TEMP_SSH_PRIVATE_KEY_FILE" "$SFTP_USERNAME@$SERVER"
-    else
-        log "Error: No authentication method available for SFTP delete"
-        exit 1
-    fi
-    
-    log 'Remote directory cleared successfully via SFTP'
-}
-
 # Delete remote files if requested
 if [ "$DELETE_REMOTE_FILES" = "true" ]; then
-    if [ "$USE_SFTP_FOR_DELETE" = "true" ]; then
-        delete_via_sftp
-    else
-        delete_via_ssh
-    fi
+    delete_via_ssh
 fi
 
 # Prepare SFTP file for upload
 log 'Preparing SFTP transfer...'
-echo "put -r $LOCAL_PATH/* $REMOTE_PATH/" > "$TEMP_SFTP_FILE"
+cat > "$TEMP_SFTP_FILE" << EOF
+cd $REMOTE_PATH
+put -r $LOCAL_PATH/* .
+EOF
 log "SFTP commands for upload:"
 cat "$TEMP_SFTP_FILE"
 
 # Perform SFTP transfer
 log 'Starting SFTP transfer...'
+
+# Function to execute SFTP transfer with password
+sftp_with_password() {
+    local username="$1"
+    local password="$2"
+    
+    log "Using password authentication for SFTP with user: $username"
+    
+    # Create a temporary expect script to handle the password
+    EXPECT_SCRIPT="/tmp/sftp_expect.sh"
+    cat > "$EXPECT_SCRIPT" << EOF
+#!/usr/bin/expect -f
+set timeout -1
+spawn sftp -P "$PORT" $SFTP_ARGS -o StrictHostKeyChecking=no "$username@$SERVER"
+expect "password:"
+send "$password\r"
+expect "sftp>"
+send "cd $REMOTE_PATH\r"
+expect "sftp>"
+send "put -r $LOCAL_PATH/* .\r"
+expect "sftp>"
+send "bye\r"
+expect eof
+EOF
+    
+    chmod +x "$EXPECT_SCRIPT"
+    apk add --no-cache expect
+    
+    log "Running expect script for SFTP transfer"
+    $EXPECT_SCRIPT
+}
+
 if [ -n "$SFTP_PASSWORD" ]; then
-    log "Using SFTP with password authentication"
-    sshpass -p "$SFTP_PASSWORD" sftp -b "$TEMP_SFTP_FILE" -P "$PORT" $SFTP_ARGS -o StrictHostKeyChecking=no "$SFTP_USERNAME@$SERVER"
+    log "Using SFTP password for authentication"
+    sftp_with_password "$SFTP_USERNAME" "$SFTP_PASSWORD"
 elif [ -n "$SSH_PASSWORD" ]; then
     log "Using SSH password for SFTP authentication"
-    sshpass -p "$SSH_PASSWORD" sftp -b "$TEMP_SFTP_FILE" -P "$PORT" $SFTP_ARGS -o StrictHostKeyChecking=no "$SFTP_USERNAME@$SERVER"
+    sftp_with_password "$SFTP_USERNAME" "$SSH_PASSWORD"
 elif [ -n "$SSH_PRIVATE_KEY" ]; then
     log "Using SFTP with key authentication"
     sftp -b "$TEMP_SFTP_FILE" -P "$PORT" $SFTP_ARGS -o StrictHostKeyChecking=no -i "$TEMP_SSH_PRIVATE_KEY_FILE" "$SFTP_USERNAME@$SERVER"
