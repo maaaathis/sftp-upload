@@ -47,7 +47,7 @@ runs:
   using: 'docker'
   image: 'Dockerfile'
   args:
-    - ${{ inputs.username }}
+    - ${{ inputs.sftp_username }}
     - ${{ inputs.server }}
     - ${{ inputs.port }}
     - ${{ inputs.ssh_private_key }}
@@ -55,7 +55,7 @@ runs:
     - ${{ inputs.remote_path }}
     - ${{ inputs.sftpArgs }}
     - ${{ inputs.delete_remote_files }}
-    - ${{ inputs.password }}
+    - ${{ inputs.sftp_password }}
     - ${{ inputs.use_sftp_for_delete }}
     - ${{ inputs.ssh_username }}
     - ${{ inputs.ssh_password }}
