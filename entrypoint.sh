@@ -24,8 +24,20 @@ log "Installiere benötigte Pakete..."
 apk update
 apk add --no-cache sshpass openssh-client rsync
 
-# Benutzername enthält ein @ - wir müssen vorsichtig mit Anführungszeichen arbeiten
+# Fix LOCAL_PATH if it contains wildcards
+if echo "$LOCAL_PATH" | grep -q '\*'; then
+  log "Wildcard im Pfad erkannt, verwende den Basis-Arbeitsverzeichnis"
+  LOCAL_PATH="."
+fi
+
+# Debug directory information
 log "SSH-Benutzername: $SSH_USERNAME"
+log "Aktuelles Verzeichnis: $(pwd)"
+log "Inhalt des aktuellen Verzeichnisses:"
+ls -la
+
+log "Zu übertragende Dateien:"
+find "$LOCAL_PATH" -type f | sort
 
 # Function to delete remote directory via SSH
 delete_via_ssh() {
@@ -60,79 +72,66 @@ fi
 rsync_transfer() {
   log "Starte rsync-Übertragung mit SSH-Zugangsdaten..."
   
-  # Ensure local path has trailing slash for rsync
-  LOCAL_PATH_RSYNC="$LOCAL_PATH"
-  if [ ! -z "$LOCAL_PATH" ] && [ "${LOCAL_PATH: -1}" != "/" ]; then
-    LOCAL_PATH_RSYNC="$LOCAL_PATH/"
-  fi
-  
-  log "Quellpfad: $LOCAL_PATH_RSYNC"
+  log "Quellpfad: $LOCAL_PATH"
   log "Zielpfad: $REMOTE_PATH"
-  
-  # List local directory contents
-  log "Inhalt des lokalen Verzeichnisses:"
-  ls -la "$LOCAL_PATH"
   
   if [ -n "$SSH_PASSWORD" ]; then
     log "Verwende rsync mit SSH Passwort"
     export SSHPASS="$SSH_PASSWORD"
-    rsync -avz --progress --delete -e "sshpass -e ssh -p $PORT -o StrictHostKeyChecking=no" "$LOCAL_PATH_RSYNC" "$SSH_USERNAME@$SERVER:$REMOTE_PATH/"
+    rsync -avz --progress --delete -e "sshpass -e ssh -p $PORT -o StrictHostKeyChecking=no" "$LOCAL_PATH/" "$SSH_USERNAME@$SERVER:$REMOTE_PATH/"
+    return $?
   elif [ -n "$SSH_PRIVATE_KEY" ]; then
     TEMP_SSH_PRIVATE_KEY_FILE='/tmp/private_key.pem'
     printf "%s" "$SSH_PRIVATE_KEY" > "$TEMP_SSH_PRIVATE_KEY_FILE"
     chmod 600 "$TEMP_SSH_PRIVATE_KEY_FILE"
     
     log "Verwende rsync mit SSH Key"
-    rsync -avz --progress --delete -e "ssh -p $PORT -i $TEMP_SSH_PRIVATE_KEY_FILE -o StrictHostKeyChecking=no" "$LOCAL_PATH_RSYNC" "$SSH_USERNAME@$SERVER:$REMOTE_PATH/"
+    rsync -avz --progress --delete -e "ssh -p $PORT -i $TEMP_SSH_PRIVATE_KEY_FILE -o StrictHostKeyChecking=no" "$LOCAL_PATH/" "$SSH_USERNAME@$SERVER:$REMOTE_PATH/"
+    return $?
   else
     log "FEHLER: Keine Authentifizierungsmethode verfügbar"
     return 1
   fi
 }
 
-# Function for direct SCP transfer as fallback
-scp_transfer() {
-  log "Fallback: Starte SCP-Übertragung..."
+# Function for tar+ssh transfer as a reliable alternative
+tar_ssh_transfer() {
+  log "Verwende tar+ssh für die Übertragung..."
   
   if [ -n "$SSH_PASSWORD" ]; then
-    log "Verwende SCP mit SSH Passwort"
-    cd "$LOCAL_PATH" && find . -type f | while read file; do
-      dir=$(dirname "$file")
-      if [ "$dir" != "." ]; then
-        sshpass -p "$SSH_PASSWORD" ssh -o StrictHostKeyChecking=no -p "$PORT" "$SSH_USERNAME@$SERVER" "mkdir -p $REMOTE_PATH/$dir"
-      fi
-      sshpass -p "$SSH_PASSWORD" scp -o StrictHostKeyChecking=no -P "$PORT" "$file" "$SSH_USERNAME@$SERVER:$REMOTE_PATH/$file"
-    done
+    log "Verwende SSH Passwort für tar+ssh Übertragung"
+    tar -cz -C "$LOCAL_PATH" . | sshpass -p "$SSH_PASSWORD" ssh -o StrictHostKeyChecking=no -p "$PORT" "$SSH_USERNAME@$SERVER" "tar -xz -C $REMOTE_PATH"
+    return $?
   elif [ -n "$SSH_PRIVATE_KEY" ]; then
     TEMP_SSH_PRIVATE_KEY_FILE='/tmp/private_key.pem'
     printf "%s" "$SSH_PRIVATE_KEY" > "$TEMP_SSH_PRIVATE_KEY_FILE"
     chmod 600 "$TEMP_SSH_PRIVATE_KEY_FILE"
     
-    log "Verwende SCP mit SSH Key"
-    cd "$LOCAL_PATH" && find . -type f | while read file; do
-      dir=$(dirname "$file")
-      if [ "$dir" != "." ]; then
-        ssh -o StrictHostKeyChecking=no -p "$PORT" -i "$TEMP_SSH_PRIVATE_KEY_FILE" "$SSH_USERNAME@$SERVER" "mkdir -p $REMOTE_PATH/$dir"
-      fi
-      scp -o StrictHostKeyChecking=no -i "$TEMP_SSH_PRIVATE_KEY_FILE" -P "$PORT" "$file" "$SSH_USERNAME@$SERVER:$REMOTE_PATH/$file"
-    done
+    log "Verwende SSH Key für tar+ssh Übertragung"
+    tar -cz -C "$LOCAL_PATH" . | ssh -o StrictHostKeyChecking=no -p "$PORT" -i "$TEMP_SSH_PRIVATE_KEY_FILE" "$SSH_USERNAME@$SERVER" "tar -xz -C $REMOTE_PATH"
+    return $?
   else
     log "FEHLER: Keine Authentifizierungsmethode verfügbar"
     return 1
   fi
 }
 
-# Try file transfers
+# Try multiple file transfer methods
 log "Starte Dateiübertragung..."
 
+# Try rsync first
 if rsync_transfer; then
   log "Dateiübertragung via rsync erfolgreich abgeschlossen"
-elif scp_transfer; then
-  log "Dateiübertragung via SCP erfolgreich abgeschlossen"
+  exit 0
+fi
+
+log "rsync fehlgeschlagen, versuche tar+ssh methode..."
+
+# Try tar+ssh as reliable fallback
+if tar_ssh_transfer; then
+  log "Dateiübertragung via tar+ssh erfolgreich abgeschlossen"
+  exit 0
 else
   log "FEHLER: Alle Übertragungsmethoden sind fehlgeschlagen"
   exit 1
 fi
-
-log "Deployment erfolgreich abgeschlossen"
-exit 0
